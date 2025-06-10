@@ -33,15 +33,13 @@ def main():
     processes = {}
     
     def cleanup(sig=None, frame=None):
-        print("\nShutting down all servers...")
-        time.sleep(30)
         for country, process in processes.items():
             if process.poll() is None:  # If process is still running
                 print(f"Stopping {country} (PID: {process.pid})...")
                 try:
                     process.terminate()
                     # Give it a moment to terminate gracefully
-                    time.sleep(0.5)
+                    time.sleep(1)
                     if process.poll() is None:
                         process.kill()
                 except:
@@ -56,7 +54,7 @@ def main():
     # Kill existing Python processes
     print("Cleaning up existing processes...")
     try:
-        subprocess.run(["pkill", "-f", "python.*\.py"], check=False)
+        subprocess.run(["pkill", "-f", r"python.*\.py"], check=False)
         time.sleep(2)
     except:
         pass
@@ -113,7 +111,7 @@ def main():
                 )
                 
                 print(f"Started {country} (PID: {processes[country].pid})")
-                time.sleep(1)  # Small delay between country starts
+                time.sleep(2)  # Stagger starts slightly
             
         # Wait for completion marker with timeout
         start_time = time.time()
@@ -135,6 +133,8 @@ def main():
         
         # Check result file - updated for all-dates mode
         result_file = "key_countries/results/smpc_results_all_dates.csv"
+
+        print(f"Limit set to: {args.limit if args.limit > 0 else 'No limit (all dates)'}")
         
         if os.path.exists(completion_marker):
             print("Protocol completed successfully!")

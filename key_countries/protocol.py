@@ -21,6 +21,7 @@ NUM_PARTIES = 8
 DEALER_ID = 0  # China is the dealer (Party ID 0)
 BASE_PORT = 8000
 HOST = 'localhost'
+SOCKET_SIZE = 1048576  # 1MB for larger messages
 
 COUNTRIES = {
     'china': 0,
@@ -188,16 +189,21 @@ class Server:
             return 0.0
 
     def generate_shares(self, value, num_parties=NUM_PARTIES):
-        """Generate secret shares for a value"""
-        # Generate random shares for all parties except the last
-        shares = np.random.uniform(-100, 100, num_parties - 1)
-        # Last share is calculated to ensure sum equals the original value
-        last_share = value - sum(shares)
-        # Combine all shares
-        all_shares = np.append(shares, last_share)
-        self.logger.info(f"Generated {num_parties} shares for value {value}")
+        """Generate secret shares for a value with enhanced privacy"""
+        magnitude = 100000
         
-        return all_shares.tolist()
+        # Generate completely random shares for all parties
+        shares = np.random.uniform(-magnitude, magnitude, num_parties)
+        
+        # Adjust the shares so they sum to the original value
+        sum_of_shares = np.sum(shares)
+        adjustment = (value - sum_of_shares) / num_parties
+        
+        # Apply the adjustment to all shares
+        shares = shares + adjustment
+
+        self.logger.info(f"Generated {num_parties} private shares for value {value}")
+        return shares.tolist()
 
     def check_server_ready(self, target_id, max_retries=5):
         """Check if server at target_id is ready to receive shares"""
@@ -217,7 +223,7 @@ class Server:
                 }
                 
                 sock.send(json.dumps(message).encode('utf-8'))
-                response = sock.recv(1048576).decode('utf-8')
+                response = sock.recv(SOCKET_SIZE).decode('utf-8')
                 sock.close()
                 
                 if response == 'ACK':
@@ -258,7 +264,7 @@ class Server:
                 }
                 
                 sock.send(json.dumps(message).encode('utf-8'))
-                response = sock.recv(1048576).decode('utf-8')
+                response = sock.recv(SOCKET_SIZE).decode('utf-8')
                 sock.close()
                 
                 print(f"Sent share to Party {target_id}, response: {response}")
@@ -298,7 +304,7 @@ class Server:
                 }
                 
                 sock.send(json.dumps(message).encode('utf-8'))
-                response = sock.recv(1048576).decode('utf-8')
+                response = sock.recv(SOCKET_SIZE).decode('utf-8')
                 sock.close()
                 
                 print(f"Sent aggregate to dealer (attempt {attempt+1}/{max_retries}), response: {response}")
@@ -421,13 +427,15 @@ class Server:
             self.logger.error(f"Error loading data for date {date}: {e}")
             return 0.0
 
-    def run_smpc_for_all_dates(self, limit_dates=True, limit_size=1):
+    def run_smpc_for_all_dates(self, limit_size):
         print(f"\nStarting SMPC protocol for all dates in dataset")
         # Get data and dates
-        if limit_dates:
-            all_dates = self._load_data_and_create_progress_marker(limit_dates=True, limit_size=limit_size)
+        if limit_size is not None and limit_size > 0:
+            self.logger.info(f"--Limiting dataset to first {limit_size} dates for initial testing")
+            all_dates = self._load_data_and_create_progress_marker(limit_size=limit_size)
         else:
-            all_dates = self._load_data_and_create_progress_marker(limit_dates=False)
+            self.logger.info(f"--Loading all dates from dataset")
+            all_dates = self._load_data_and_create_progress_marker()
         if not all_dates:
             return False
         
@@ -449,7 +457,7 @@ class Server:
     
         return True
 
-    def _load_data_and_create_progress_marker(self, limit_dates=True, limit_size=1):
+    def _load_data_and_create_progress_marker(self, limit_size=None):
         """Load data and create progress marker (not completion marker)"""
         # Get all dates
         all_dates = self.get_all_dates()
@@ -471,7 +479,7 @@ class Server:
                 os.remove(completion_marker)
                 self.logger.info("Removed existing completion marker")
         
-        if limit_dates:
+        if limit_size is not None and limit_size > 0:
             # Limit dataset size for initial testing
             print(f"Limiting dataset to first {limit_size} dates for initial testing")
             self.logger.info(f"Limiting dataset to first {limit_size} dates for initial testing")
@@ -524,38 +532,51 @@ class Server:
 
     def _distribute_and_collect_shares(self, all_dates, shares_by_recipient):
         """Send shares to other parties and wait to receive theirs"""
+        # Initialize tracking structure - track by date AND party
+        expected_shares = {date: set(range(NUM_PARTIES)) for date in all_dates}
+        received_shares = {date: set() for date in all_dates}
+        
         # Send shares to all other parties
         for target_id, date_shares in shares_by_recipient.items():
             if target_id == self.party_id:
                 continue  # Skip ourselves
                 
             self.logger.info(f"Sending batch of {len(date_shares)} shares to Party {target_id}...")
-            
             sent = self.send_batch_shares(target_id, date_shares)
-            self.logger.info(f"Sent: {sent}")
-
+            
             if sent:
                 self.shares_sent_to.add(target_id)
                 self.logger.info(f"Successfully sent shares to Party {target_id}")
             else:
                 self.logger.error(f"Failed to send shares to Party {target_id}")
-        
+    
         # Wait to confirm all shares are sent and received
         print("Waiting for all share exchanges to complete...")
         
-        # Define the confirmation check function
+        # Modified check function that verifies ALL dates have shares from ALL parties
         def all_shares_exchanged():
             self.logger.info("Checking if all shares have been exchanged...")
-            self.logger.info(f"Shares sent to: {self.shares_sent_to}")
-            self.logger.info(f"Shares received from: {self.shares_received_from}")
-
-            all_sent = len(self.shares_sent_to) == NUM_PARTIES - 1
-            all_received = len(self.shares_received_from) == NUM_PARTIES - 1
             
-            return all_sent and all_received
+            # Update our tracking based on what's actually in shares_received
+            for date, parties_dict in self.shares_received.items():
+                for party_id in parties_dict:
+                    if date in received_shares:
+                        received_shares[date].add(party_id)
+            
+            # Check completeness
+            missing_dates = 0
+            for date, received_parties in received_shares.items():
+                missing = expected_shares[date] - received_parties
+                if missing:
+                    missing_dates += 1
+                    if len(missing) < NUM_PARTIES:  # Only log if we have some but not all
+                        self.logger.info(f"Date {date}: missing shares from parties {missing}")
+            
+            self.logger.info(f"Missing shares for {missing_dates}/{len(all_dates)} dates")
+            return missing_dates == 0
         
         # Poll until complete or timeout
-        max_wait = 300  # Still have a maximum timeout for safety
+        max_wait = 300
         start_time = time.time()
         status_time = time.time()
         
@@ -569,26 +590,6 @@ class Server:
     def _compute_and_send_local_sums(self, all_dates):
         """Compute local sums from received shares and send to dealer"""
         # Convert all string dates to a standard format
-        standardized_shares = {}
-        for date_key in self.shares_received:
-            # Standardize date format if it's a string date
-            std_date = date_key
-            if isinstance(date_key, str):
-                # Try different formats
-                for fmt in ['%Y-%m-%d', '%Y/%m/%d', '%m/%d/%Y']:
-                    try:
-                        dt = datetime.strptime(date_key, fmt)
-                        std_date = dt.strftime('%Y-%m-%d')
-                        break
-                    except ValueError:
-                        continue
-        
-            # Store with standard key
-            standardized_shares[std_date] = self.shares_received[date_key]
-    
-        # Replace with standardized version
-        self.shares_received = standardized_shares
-    
         local_sums = {}
         missing_parties_by_date = {}
         
@@ -612,8 +613,8 @@ class Server:
                 # Log the detailed calculation
                 share_details = [f"{p}:{date_shares.get(p, 'MISSING')}" for p in sorted(expected_parties)]
                 calc_str = " + ".join([f"{p}:{date_shares[p]:.2f}" for p in sorted(date_shares.keys())])
-                self.logger.info(f"Date {date}: sum calculation: {calc_str} = {sum_value}")
-                self.logger.info(f"Date {date}: computed sum {sum_value} from {len(date_shares)}/{NUM_PARTIES} shares")
+                #self.logger.info(f"Date {date}: sum calculation: {calc_str} = {sum_value}")
+                #self.logger.info(f"Date {date}: computed sum {sum_value} from {len(date_shares)}/{NUM_PARTIES} shares")
             else:
                 local_sums[date] = 0.0
                 self.logger.warning(f"No shares received for date {date}")
@@ -650,16 +651,12 @@ class Server:
         start_time = time.time()
         last_status = time.time()
 
-        # Initialize aggregate sums dictionary if not exist
-        if not hasattr(self, 'aggregate_sums'):
-            self.aggregate_sums = {}
-
         # Store own aggregates
         for date, sum_value in local_sums.items():
             if date not in self.aggregate_sums:
                 self.aggregate_sums[date] = {}
             self.aggregate_sums[date][self.party_id] = sum_value
-            self.logger.info(f"Stored own aggregate for date {date}: {sum_value}")
+            #self.logger.info(f"Stored own aggregate for date {date}: {sum_value}")
 
         # Track which parties have sent their aggregates for each date
         self.logs = {}  # {date: set(party_ids)}
@@ -694,7 +691,7 @@ class Server:
                 # Log which parties have sent their aggregates for the first few missing dates
                 for date in missing_dates[:5]:
                     sent_parties = sorted(self.logs[date])
-                    self.logger.info(f"Date {date}: Aggregates received from parties: {sent_parties}")
+                    #self.logger.info(f"Date {date}: Aggregates received from parties: {sent_parties}")
                 last_status = time.time()
 
             if complete_dates == len(all_dates):
@@ -727,7 +724,7 @@ class Server:
                         agg_details.append(f"{party_id}:{agg_value:.2f}")
                     
                     calc_str = " + ".join(agg_details)
-                    self.logger.info(f"Final sum calculation: {calc_str} = {final_sum}")
+                    #self.logger.info(f"Final sum calculation: {calc_str} = {final_sum}")
                     
                     new_row = pd.DataFrame({
                         'Date': [date],
@@ -737,7 +734,7 @@ class Server:
                     })
                     
                     results_df = pd.concat([results_df, new_row], ignore_index=True)
-                    self.logger.info(f"Date {date}: Final sum = {final_sum} from {len(party_sums)} countries")
+                    #self.logger.info(f"Date {date}: Final sum = {final_sum} from {len(party_sums)} countries")
         
         # Save results and create completion marker
         if len(results_df) > 0:
@@ -795,7 +792,7 @@ class Server:
                 # Convert to JSON and send
                 json_data = json.dumps(message)
                 sock.send(json_data.encode('utf-8'))
-                response = sock.recv(1048576).decode('utf-8')
+                response = sock.recv(SOCKET_SIZE).decode('utf-8')
                 sock.close()
                 
                 print(f"Sent batch of {len(date_shares)} shares to Party {target_id}, response: {response}")
@@ -838,7 +835,7 @@ class Server:
                 
                 json_data = json.dumps(message)
                 sock.send(json_data.encode('utf-8'))
-                response = sock.recv(1048576).decode('utf-8')
+                response = sock.recv(SOCKET_SIZE).decode('utf-8')
                 sock.close()
                 
                 print(f"Sent {len(date_sums)} aggregates to dealer, response: {response}")
@@ -895,7 +892,7 @@ def main():
                         help='Data column to use')
     parser.add_argument('--data-dir', type=str, 
                         help='Directory containing country data files')
-    parser.add_argument('--limit', type=int, default=1,
+    parser.add_argument('--limit', type=int, default=None,
                         help='Number of dates to limit dataset to for testing')
     
     args = parser.parse_args()
@@ -905,8 +902,6 @@ def main():
         if args.country not in COUNTRIES:
             print(f"Error: Invalid country name. Must be one of: {', '.join(COUNTRIES.keys())}")
             sys.exit(1)
-        
-        print(f"Starting {args.country.upper()} server (Party ID: {COUNTRIES[args.country]})")
         
         # Create the server instance with the specified country and data directory
         server = Server(country_name=args.country, data_dir=args.data_dir)
@@ -926,11 +921,11 @@ def main():
             # Give server time to initialize
             time.sleep(3)
             
-            if args.limit >= 1:
-                print(f"Limiting dataset to first {args.limit} dates for initial testing")
-                server.run_smpc_for_all_dates(limit_dates=True, limit_size=args.limit)
-            else:
-                server.run_smpc_for_all_dates(limit_dates=False)
+            # if args.limit and args.limit >= 1:
+            #     server.run_smpc_for_all_dates(limit_dates=True, limit_size=args.limit)
+            # else:
+            server.logger.info(f"Running with limit size: {args.limit}")
+            server.run_smpc_for_all_dates(limit_size=args.limit)
             
             # CRITICAL: Keep the main thread alive to handle connections
             print("Protocol execution completed, keeping server alive for communications...")
