@@ -6,12 +6,14 @@ from pathlib import Path
 from typing import Dict, List
 
 # Network configuration
-DEALER_ID = 0  # Party 0 is always the dealer
+DEALER_ID = 0  # Party 0 is the dealer
 BASE_PORT = 8000
 HOST = 'localhost'
-SOCKET_SIZE = 1048576  # 1MB buffer
-CONNECTION_TIMEOUT = 10
-MAX_RETRIES = 5
+SOCKET_SIZE = 1048576
+CONNECTION_TIMEOUT = 30
+MAX_RETRIES = 8
+RETRY_BASE_DELAY = 1
+RETRY_MAX_DELAY = 5
 
 # Dynamic party configuration
 _parties_cache = None
@@ -68,9 +70,8 @@ def reset_party_cache():
     _parties_cache = None
     _num_parties_cache = None
 
-# Legacy support for country-based configuration
 COUNTRIES = {
-    'china': 0,       # Dealer
+    'china': 0,
     'france': 1,
     'germany': 2,
     'iran': 3,
@@ -80,10 +81,9 @@ COUNTRIES = {
     'us': 7
 }
 
-# For backward compatibility
-NUM_PARTIES = 8  # Default fallback
+NUM_PARTIES = 8
 DEFAULT_PARTIES = {
-    'party_0': 0,     # Dealer
+    'party_0': 0,
     'party_1': 1,
     'party_2': 2,
     'party_3': 3,
@@ -100,8 +100,8 @@ LOGS_DIR = 'logs'
 DEBUG_DIR = 'debug'
 
 # Protocol timeouts
-SHARE_EXCHANGE_TIMEOUT = 300
-AGGREGATE_TIMEOUT = 180
+SHARE_EXCHANGE_TIMEOUT = 600
+AGGREGATE_TIMEOUT = 300
 
 # Privacy parameters
 SHARE_MAGNITUDE = 100000

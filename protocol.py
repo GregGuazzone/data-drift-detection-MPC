@@ -9,6 +9,7 @@ import sys
 import threading
 import time
 import pandas as pd
+from pathlib import Path
 from typing import Dict, List, Optional
 
 from server import SMPCServer
@@ -166,6 +167,10 @@ class SMPCProtocol:
             success = self.server.send_aggregates(local_sums)
             if not success:
                 raise RuntimeError("Failed to send aggregates to dealer")
+            
+            # Wait a bit to ensure dealer receives the aggregates before we exit
+            self.logger.info("Sent aggregates to dealer, waiting for protocol completion...")
+            time.sleep(5)
         
         return local_sums
     
@@ -194,7 +199,7 @@ class SMPCProtocol:
                 final_sum = sum(party_sums.values())
                 results.append({
                     'Date': date,
-                    'Total_Cases': int(final_sum),
+                    f'Total_{self.data_mgr.data_column}': int(final_sum),
                     'Parties_Reporting': len(party_sums)
                 })
         
@@ -202,6 +207,14 @@ class SMPCProtocol:
         results_df = pd.DataFrame(results)
         self.data_mgr.save_results(results_df)
         self.logger.info(f"Final results computed and saved for {len(results)} dates")
+        
+        # Create completion marker to signal successful protocol completion
+        completion_marker = Path(self.data_mgr.data_root_dir) / "protocol_complete.marker"
+        with open(completion_marker, 'w') as f:
+            f.write(f"Protocol completed successfully at {time.time()}\n")
+            f.write(f"Results saved to: Total_{self.data_mgr.data_column}.csv\n")
+            f.write(f"Processed {len(results)} dates\n")
+        self.logger.info(f"Protocol completion marker created: {completion_marker}")
 
 
 def main():
@@ -231,9 +244,15 @@ def main():
         # Run protocol
         protocol.run_protocol(args.limit)
         
+        # Signal successful completion
+        protocol.logger.info("SMPC Protocol completed successfully")
+        
         # Keep server running briefly for final communications
         time.sleep(10)
         protocol.server.stop_server()
+        
+        # Exit gracefully
+        sys.exit(0)
         
     except KeyboardInterrupt:
         print("\nShutdown requested")

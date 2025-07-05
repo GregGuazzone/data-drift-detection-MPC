@@ -123,10 +123,16 @@ class DataManager:
         self.logger.info(f"Created shares DataFrame: {shares_df.shape}")
         return shares_df
     
-    def save_results(self, results_df: pd.DataFrame, filename: str = "smpc_results.csv"):
-        """Save final results to CSV file"""
-        os.makedirs(RESULTS_DIR, exist_ok=True)
-        filepath = Path(RESULTS_DIR) / filename
+    def save_results(self, results_df: pd.DataFrame, filename: Optional[str] = None):
+        """Save final results to CSV file in data root directory"""
+        # Save in data root directory instead of global results directory
+        results_dir = Path(self.data_root_dir)
+        
+        # Generate filename based on column name if not provided
+        if filename is None:
+            filename = f"Total_{self.data_column}.csv"
+        
+        filepath = results_dir / filename
         
         try:
             results_df.to_csv(filepath, index=False)

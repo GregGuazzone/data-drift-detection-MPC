@@ -12,7 +12,7 @@ from typing import Dict, Optional, Set
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from config import (HOST, BASE_PORT, SOCKET_SIZE, discover_parties, get_num_parties, COUNTRIES, 
-                   DEALER_ID, CONNECTION_TIMEOUT, MAX_RETRIES) 
+                   DEALER_ID, CONNECTION_TIMEOUT, MAX_RETRIES, RETRY_BASE_DELAY, RETRY_MAX_DELAY) 
 
 class SMPCServer:
     """Handles all network communication for SMPC protocol"""
@@ -64,7 +64,9 @@ class SMPCServer:
             self.server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
             self.server_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
             self.server_socket.bind((HOST, self.port))
-            self.server_socket.listen(10)
+            # Increased backlog for better handling of concurrent connections
+            backlog = min(128, max(10, self.num_parties * 2))
+            self.server_socket.listen(backlog)
             self._running = True
             
             self.logger.info(f"Server listening on {HOST}:{self.port}")
@@ -139,24 +141,26 @@ class SMPCServer:
         self.logger.info(f"Received {len(date_aggregates)} aggregates from Party {sender_id}")
     
     def send_shares_dataframe(self, shares_df: pd.DataFrame) -> bool:
-        """Send shares to all parties concurrently"""
-        with ThreadPoolExecutor(max_workers=self.num_parties) as executor:
+        """Send shares to all parties concurrently with improved error handling"""
+        target_parties = [pid for pid in range(self.num_parties) if pid != self.party_id]
+        
+        # Use smaller thread pool for better resource management
+        max_workers = min(10, len(target_parties))
+        
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
             futures = []
             
-            for party_id in range(self.num_parties):
-                if party_id == self.party_id:
-                    continue
-                
+            for party_id in target_parties:
                 date_shares = shares_df[party_id].to_dict()
                 future = executor.submit(self._send_to_party, party_id, 'batch_shares', 
                                        {'date_shares': date_shares})
                 futures.append((party_id, future))
             
-            # Wait for all sends to complete
+            # Wait for all sends to complete with longer timeout
             success_count = 0
             for party_id, future in futures:
                 try:
-                    if future.result(timeout=30):
+                    if future.result(timeout=60):  # Increased timeout
                         self.shares_sent_to.add(party_id)
                         success_count += 1
                 except Exception as e:
@@ -174,7 +178,7 @@ class SMPCServer:
                                  {'date_aggregates': aggregates})
     
     def _send_to_party(self, target_id: int, msg_type: str, data: Dict) -> bool:
-        """Send message to a specific party with retries"""
+        """Send message to a specific party with improved retry logic"""
         target_port = BASE_PORT + target_id
         
         message = {
@@ -200,7 +204,11 @@ class SMPCServer:
             except Exception as e:
                 self.logger.warning(f"Send attempt {attempt}/{MAX_RETRIES} to Party {target_id} failed: {e}")
                 if attempt < MAX_RETRIES:
-                    time.sleep(2 ** attempt)  # Exponential backoff
+                    # Improved backoff: random jitter to avoid thundering herd
+                    import random
+                    base_delay = min(RETRY_BASE_DELAY * (2 ** (attempt - 1)), RETRY_MAX_DELAY)
+                    jitter = random.uniform(0, base_delay * 0.1)  # Add up to 10% jitter
+                    time.sleep(base_delay + jitter)
         
         return False
     
