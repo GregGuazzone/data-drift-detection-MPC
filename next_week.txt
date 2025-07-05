@@ -1,0 +1,8 @@
+11/06: Moving to an actual setup
+Run asynchronously, distributively
+Looking into using dataset from stocks and sales
+
+Fix the issue
+Work sales dataset
+Have an actual distributed setup
+Apply model to local and then add global context
