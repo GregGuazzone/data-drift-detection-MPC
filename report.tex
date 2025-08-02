@@ -1,0 +1,350 @@
+\documentclass{article}
+\usepackage{graphicx} % Required for inserting images
+\usepackage{amsmath}
+\usepackage{enumitem}
+\usepackage{amssymb}
+\usepackage{float}
+\usepackage[numbers]{natbib}
+\usepackage[colorlinks=true, linkcolor=blue, citecolor=blue, urlcolor=blue]{hyperref}
+
+\bibliographystyle{unsrt}
+
+\title{Data Drift Detection using Secure Statistical Aggregation}
+\author{Gregory Guazzone}
+\date{April 2025}
+
+\begin{document}
+
+\maketitle
+
+\section{Abstract}
+Data drift, when the statistical distribution of a feature drifts over time, remains an important issue in data quality.
+In particular, with the increased use of machine learning, a drift in the data can significantly degrade model performance as the data it is evaluating has shifted since training. This degradation can have drastic consequences in settings that require accurate predictions such as hospitals or finance, where even small shifts in input data distributions can lead to misdiagnoses, financial miscalculations, or systemic failures that directly impact human lives or large-scale operations.
+This makes data drift detection in a timely and accurate manner an important research topic.
+
+Current approaches naturally focus on detecting a drift from past periods to the current one using techniques that measure differences in datasets or statistical divergences. However, these approaches are limited to a local context, relying solely on a party’s own historical data as a reference point, which can obscure broader systemic trends.
+
+We propose an enhancement to statistical divergence techniques by \textit{securely} aggregating global properties from a multitude of data sources which have common characteristics and securely incorporating them into local data drift detection to provide a global context for statistical distributions of local characteristics. Valid privacy constraints prevent direct data sharing across institutions (e.g. hospitals). However, our approach uses \textit{Secure Multiparty Computation} to compute global statistical properties without exposing individual data, thus enabling the secure aggregation and redistribution of properties that enhance local drift detection.
+
+\begin{table}[H]
+\centering
+\caption{Notation and Symbols}
+\label{tab:notation}
+\begin{tabular}{|c|l|}
+\hline
+\textbf{Symbol} & \textbf{Description} \\
+\hline
+\hline
+\multicolumn{2}{|c|}{\textbf{General}} \\
+\hline
+$k$ & Number of parties/institutions \\
+$P_i$ & Party $i$, where $i \in \{1, 2, \ldots, k\}$ \\
+$d$ & Number of features/dimensions \\
+$\sigma$ & Standard deviation \\
+$\delta$ & Drift magnitude parameter \\
+\hline
+\hline
+\multicolumn{2}{|c|}{\textbf{Local Data and Statistics}} \\
+\hline
+$X_i$ & Dataset held by party $P_i$ \\
+$\mathbf{x}_r$ & Data sample (row vector) \\
+$x_j$ & Individual data point or feature value \\
+$n_i$ & Number of data points held by party $P_i$ \\
+$s_i$ & Local sum: $\sum_{j=1}^{n_i} x_j$ \\
+$q_i$ & Local sum of squares: $\sum_{j=1}^{n_i} x_j^2$ \\
+$\mu_i$ & Local mean vector of party $P_i$ \\
+$\Sigma_i$ & Local covariance matrix of party $P_i$ \\
+\hline
+\hline
+\multicolumn{2}{|c|}{\textbf{Secret Sharing}} \\
+\hline
+$x$ & Secret value to be shared \\
+$x_j$ & Share $j$ of secret value $x$ \\
+$s_i^{(j)}$ & Share $j$ of local sum $s_i$ \\
+$q_i^{(j)}$ & Share $j$ of local sum of squares $q_i$ \\
+$n_i^{(j)}$ & Share $j$ of local count $n_i$ \\
+$s'_j$ & Aggregated share of sums received by party $j$ \\
+$q'_j$ & Aggregated share of sum of squares received by party $j$ \\
+$n'_j$ & Aggregated share of counts received by party $j$ \\
+\hline
+\hline
+\multicolumn{2}{|c|}{\textbf{Global Statistics}} \\
+\hline
+$S$ & Global sum: $\sum_{i=1}^k s_i$ \\
+$Q$ & Global sum of squares: $\sum_{i=1}^k q_i$ \\
+$N$ & Global count: $\sum_{i=1}^k n_i$ \\
+$\mu$ & Global mean: $S/N$ \\
+$\mu_{\text{global}}$ & Global mean vector \\
+$\sigma^2$ & Global variance: $Q/N - \mu^2$ \\
+$\sigma$ & Global standard deviation: $\sqrt{\sigma^2}$ \\
+$\Sigma_{\text{global}}$ & Global covariance matrix \\
+\hline
+\hline
+\multicolumn{2}{|c|}{\textbf{Distance Metrics}} \\
+\hline
+$D_i^2$ & Squared Mahalanobis distance for party $P_i$ \\
+$\Sigma^{-1}$ & Inverse covariance matrix \\
+\hline
+\hline
+\end{tabular}
+\end{table}
+
+\subsection{Research Questions}
+
+To guide our research, we formulate the following research questions:\\
+
+\begin{itemize}
+    \item \textbf{RQ1}: Does incorporating globally aggregated statistics improve the accuracy and robustness of local data drift detection compared to local-only methods?
+    \item \textbf{RQ2}: Can the proposed method detect low-magnitude shifts in data distributions that are undetectable using only local reference baselines?
+    \item \textbf{RQ3}: How does the computational and communication overhead of secure aggregation compare with model-based federated drift detection frameworks?
+\end{itemize}
+
+\section{Background \& Related Work}
+
+\subsection{Privacy-Preserving Data Aggregation}
+Privacy-preserving data aggregation has emerged as a critical area of research, particularly where sensitive user-level data must be analyzed without compromising individual privacy. Many protocols aim to enable efficient computation over encrypted or obfuscated data, ensuring that raw inputs remain inaccessible to the aggregator or other participants.
+
+Recent work such as \cite{zhang} addresses challenges in malicious adversarial settings, proposing aggregation schemes based on symmetric homomorphic encryption to resist tampering and deletion by malicious aggregators.
+Other frameworks, such as PRIDA \cite{prida}, prioritize user privacy in multi-tenant environments through threshold homomorphic encryption and secure two-party computation. These systems allow for secure aggregation without revealing individual-level data or metadata.
+
+While prior work in privacy-preserving aggregation focuses on computing fixed statistical summaries securely, these techniques are not designed for, nor applied to, detecting data drift. Systems like PRIDA prioritize user privacy during aggregation but operate on static data snapshots, without considering how distributions evolve over time. In contrast, our approach uses secure multiparty computation (SMPC) to enable privacy-preserving comparison of data distributions across sites over time. This allows us to detect drift, something traditional aggregation schemes are not designed to do, while maintaining strong privacy guarantees without centralizing data or sharing models.
+
+\subsection{Data Drift Detection}
+Due to the importance of data drift detection, especially in machine learning settings, extensive research has been done on the subject. The underlying method remains the same and is to detect a change in distribution of a feature over time.
+
+\subsubsection*{Summary statistics}
+Simple statistics such as mean, standard deviation, and range are often used to track feature behavior over time. Although easy to compute and interpret, they can miss more subtle, multidimensional patterns of drift.
+
+\subsubsection*{Statistical tests}
+Statistical divergence methods such as the Population Stability Index (PSI), Kullback--Leibler and Jensen--Shannon divergences are widely used to quantify shifts between reference and current datasets \cite{evidently}. These reference datasets are from previous time-frames and are a good starting point for determining that the data isn't what it should be.
+
+\subsubsection*{Distance metrics}
+Distance-based approaches, such as Mahalanobis distance and cosine similarity, can measure how far current data distributions deviate from past distributions or known baselines. These can be sensitive to outliers and suffer from a lack of meaningful baselines in isolated environments.
+
+\subsubsection*{Federated and Distributed Drift Detection}
+Federated drift detection frameworks such as \cite{rahimli2023federated} embed drift detection into the model training lifecycle, monitoring drops in global model performance (e.g., accuracy, F1 score, ROC AUC) to identify drift across clients. This empirical approach highlights the impact even minor drift can have on federated model effectiveness. In contrast, other unsupervised techniques, such as fuzzy clustering with the Davies–Bouldin index \cite{fuzzy2024unsupervised}, aim to detect data drift without requiring labeled data or model training. By comparing changes in cluster compactness and separation over time, these methods estimate drift while maintaining full data privacy.
+
+While powerful, these frameworks often involve substantial overhead due to model exchange or cluster modeling, and are sensitive to parameter tuning or sparsely distributed drift.
+
+Our approach is a hybrid that draws on both statistical and distributed paradigms. Unlike traditional federated learning, we avoid training machine learning models entirely. Instead, we use securely aggregated statistical summaries and distributional comparisons to detect drift across distributed nodes. This enables scalable, privacy-aware monitoring without the computational cost of model updates or synchronization.
+
+\section{Approach}
+The core idea of our approach is to enable multiple data-holding parties (e.g. hospitals, financial institutions, research centers) to collaboratively compute useful statistics, such as mean, variance, or covariance, without revealing their individual datasets to each other or any centralized authority.
+
+\subsubsection*{Motivating Example: Hospital Data Drift}
+Consider five hospitals monitoring blood glucose levels of diabetic patients. Suppose Hospital A notices a $0.3\sigma$ increase in average glucose levels over the past month. On its own, this may not warrant concern. However, when compared to the global average (aggregated from all five hospitals), this shift may stand out as a localized anomaly, potentially caused by changes in measurement equipment, demographic shifts, or data entry issues.
+
+By leveraging securely aggregated statistics, Hospital A can validate whether its drift is shared globally (e.g., seasonal effect) or uniquely local, improving interpretability and reducing unnecessary alerts.
+
+\subsection{Assumptions}
+There are two main adversary models in SMPC: semi-honest, where parties will follow the protocol but are curious and try to gain extra information, and the malicious one where it cannot be assumed that the protocol will be followed.
+There are additional complexities involved when dealing with malicious parties such as forcing them to follow the protocol, so the semi-honest is preferred.
+
+In this context we can assume a semi-honest adversary model, where the protocol will be followed as each party won't have the ability or legal authority to modify the source code, but is curious and could potentially try to gain access to unauthorized information.
+
+Furthermore, parties can collude and attempt to reconstruct inputs, which should be secure. However, using secret-sharing, security is guaranteed for $k-1$ corrupt parties. This is because the honest party keeps a share of their input for themselves. There can, however, be some collusion if each corrupt party were to give an untruthful input (e.g. 0), this constitutes a deviation from the protocol and falls under the malicious adversary model. Steps should still be taken to ensure that this doesn't happen, such as aborting the protocol such when an anomaly is detected.
+
+\subsection{Overview}
+Current statistical methods rely on reference datasets of previous time-frames. We propose enhancing these methods by incorporating globally aggregated statistics, computed securely. This provides valuable context for local drift detection: for instance, if local data shows a slight upward drift from the previous period, comparing it to the global distribution might reveal whether the shift is a localized anomaly or part of a broader systemic trend.
+
+We use a lightweight cryptographic technique called \textit{additive secret sharing}, which enables collaborative computation of such aggregates without leaking any individual data. Each institution splits its data summary (e.g. sum, count) into random-looking shares and distributes these to other parties. No individual share reveals any information on its own, but the sum of all shares reconstructs the true value.
+
+By situating local data in a global context, without compromising privacy, we significantly improve the interpretability and reliability of drift detection.
+
+This makes the protocol scalable, efficient, and suitable for real-time or near real-time drift detection in sensitive domains.
+
+\subsection{Additive Secret Sharing}
+To protect individual values during computation, we use additive secret sharing. Suppose a party \( P \) holds a private value \( x \in \mathbb{R} \) and wants to distribute it securely across \( k \) parties such that no single party learns \( x \), but all \( k \) parties together can reconstruct it.
+
+\subsubsection*{Share Generation}
+\begin{enumerate}
+    \item Choose \( k-1 \) random values: \( x_1, x_2, \dots, x_{k-1} \in \mathbb{R} \)
+    \item Compute the final share as:
+    \[
+        x_k = x - \sum_{j=1}^{k-1} x_j
+    \]
+    \item Send each share \( x_j \) to party \( P_j \)
+\end{enumerate}
+
+Each party now holds a share, and the original value can only be recovered by summing all the shares:
+\[
+    x = \sum_{j=1}^{k} x_j
+\]
+
+\subsubsection*{Secure Summation}
+Each party can perform computations on the shares they hold. For example, to compute the global sum of local statistics \( x_i \), each party:
+\begin{itemize}
+    \item Shares their local value \( x_i \) using secret sharing
+    \item Receives shares from all other parties
+    \item Computes the sum of all shares received
+\end{itemize}
+
+Due to the linearity of additive secret sharing:
+\[
+    \text{shares of } \left( \sum_i x_i \right) = \sum_i \text{shares of } x_i
+\]
+
+After summing locally and exchanging results, the parties can reconstruct the global total, e.g., the global sum of all \( x_i \).
+
+\subsection{Security Guarantees}
+Let a secret value \( x \) be shared among \( k \) parties using additive secret sharing. The shares \( x_1, \dots, x_{k-1} \) are chosen independently and uniformly at random, and the final share is computed as:
+\[
+x_k = x - \sum_{j=1}^{k-1} x_j.
+\]
+The secret can be reconstructed by summing all the shares:
+\[
+x = \sum_{j=1}^{k} x_j.
+\]
+
+To argue security, consider any subset of \( k - 1 \) parties. Their shares \( x_1, \dots, x_{k-1} \) are all independently and uniformly random, and the final share \( x_k \) is computed to ensure the sum equals \( x \). Since the observed shares are uniformly random and the final share is not known to the adversary, the secret \( x \) could be any value consistent with those \( k - 1 \) shares.
+
+In other words, for every possible value of the secret \( x \), there exists exactly one value of the missing share \( x_k \) that makes the sum of all \( k \) shares equal to \( x \). Because the 
+\(k - 1\) adversaries have no information about this missing share, all possible values of \( x \) are equally likely from their perspective.
+
+This means that the secret remains perfectly hidden unless all \( k \) shares are known. The scheme therefore provides \textit{information-theoretic security} against any coalition of up to \( k - 1 \) parties.
+Furthermore, if there are \( k \) corrupt parties, the protocol is useless and security isn't needed.
+
+This additive secret sharing scheme was first formalized in the context of secure multiparty computation by Andrew Yao in 1982 \cite{protocols_sec_comp}, where it became a foundational component of Yao's Garbled Circuits \cite{garbled_circuit} and later general SMPC protocols such as GMW \cite{GMW}.
+
+\section{Example Protocols}
+
+\subsection{Secure Computation of Mean and Variance}
+
+\subsubsection*{Step 1: Local Statistics}
+Each party \( P_i \), for \( i \in \{1, \dots, k\} \), holds a dataset \( X_i = \{x_{1}, x_{2}, \dots, x_{n_i}\} \), and computes:
+
+\begin{align*}
+    s_i &= \sum_{j=1}^{n_i} x_{j} \quad \text{(local sum)} \\
+    q_i &= \sum_{j=1}^{n_i} x_{j}^2 \quad \text{(local sum of squares)} \\
+    n_i &= |X_i| \quad \text{(local count)}
+\end{align*}
+
+\subsubsection*{Step 2: Secret Sharing}
+Each party $i$ uses additive secret sharing to split each value \( s_i, q_i, n_i \) into \( k \) shares:
+\begin{align*}
+    s_i &= s_i^{(1)} + s_i^{(2)} + \dots + s_i^{(k)} \\
+    q_i &= q_i^{(1)} + q_i^{(2)} + \dots + q_i^{(k)} \\
+    n_i &= n_i^{(1)} + n_i^{(2)} + \dots + n_i^{(k)}
+\end{align*}
+
+Each share \( s_i^{(j)} \) is sent to party \( P_j \). No party learns the full value \( s_i \), only their own share.
+
+\subsubsection*{Step 3: Secure Aggregation}
+Each party aggregates the shares it received for each quantity and locally computes:
+\begin{align*}
+    S &= \sum_{j=1}^k s'_j = \sum_{j=1}^k \sum_{i=1}^k s^{(i)}_{j} \quad \text{(global sum)} \\
+    Q &= \sum_{j=1}^k q'_j = \sum_{j=1}^k \sum_{i=1}^k q^{(i)}_{j} \quad \text{(global sum of squares)} \\
+    N &= \sum_{j=1}^k n'_j = \sum_{j=1}^k \sum_{i=1}^k n^{(i)}_{j} \quad \text{(global count)}
+\end{align*}
+
+\begin{figure}[H]
+    \centering
+    \makebox[\linewidth]{\includegraphics[width=1.4\textwidth]{images/Local_compute.png}}
+    \caption{Local Secure Summarization}
+    \label{fig:local}
+\end{figure}
+
+\begin{figure}[H]
+    \centering
+    \makebox[\linewidth]{\includegraphics[width=1.4\textwidth]{images/Aggregation.png}}
+    \caption{Secure Aggregation and Global Statistics Computation}
+    \label{fig:aggregation}
+\end{figure}
+
+%Make a table of notation
+%Next steps:
+    %- Pick up the Covid dataset
+    %- Actually start building the local part (pandas or Sparql
+    %- Have the setup brought over
+    
+
+\subsubsection*{Step 4: Global Statistics}
+Using the aggregated values, parties jointly compute:
+\begin{align*}
+    \mu &= \frac{S}{N} \quad \text{(global mean)} \\
+    \sigma^2 &= \frac{Q}{N} - \mu^2 \quad \text{(global variance)} \\
+    \sigma &= \sqrt{\sigma^2} \quad \text{(global standard deviation)}
+\end{align*}
+
+At no point does any party learn another party's data, only the final aggregate statistics.
+
+\subsection{Secure Mahalanobis Distance Computation}
+
+\subsubsection*{Step 1: Local Feature Statistics}
+Let each party \( P_i \) hold a matrix \( X_i \in \mathbb{R}^{n_i \times d} \), where each row is a data sample with \( d \) features. They compute:
+\begin{align*}
+    \mu_i &= \frac{1}{n_i} \sum_{r=1}^{n_i} \mathbf{x}_r \quad \text{(local mean vector)} \\
+    \Sigma_i &= \frac{1}{n_i} \sum_{j=1}^{n_i} (\mathbf{x}_r - \mu_i)(\mathbf{x}_r - \mu_i)^T \quad \text{(local covariance)} \\
+    n_i &= \text{(local count)}
+\end{align*}
+
+\subsubsection*{Step 2: Secure Aggregation}
+Each party secret shares the scaled statistics \( n_i \cdot \boldsymbol{\mu}_i \) and \( n_i \cdot \Sigma_i \). Then, all parties collaboratively compute:
+
+\begin{align*}
+    N &= \sum_{i=1}^{k} n_i \\
+    \mu_{\text{global}} &= \frac{1}{N} \sum_{i=1}^{k} n_i \cdot \mu_i \\
+    \Sigma_{\text{global}} &= \frac{1}{N} \sum_{i=1}^{k} n_i \cdot \Sigma_i
+\end{align*}
+
+Again, the data remains secret; only the global mean and covariance matrix are revealed.
+
+\subsubsection*{Step 3: Local Mahalanobis Drift Computation}
+Each party computes its Mahalanobis distance to the global distribution:
+\[
+    D_i^2 = (\mu_i - \mu_{\text{global}})^T \Sigma_{\text{global}}^{-1} (\mu_i - \mu_{\text{global}})
+\]
+
+This score \( D_i^2 \) indicates how far the local data distribution deviates from the global distribution. A high value signals potential drift.
+
+
+\section{Evaluation}
+
+\subsection{Experimental Setup}
+
+\begin{itemize}
+    \item \textbf{Datasets:} We evaluate our approach using real-world numerical datasets from domains where natural drift occurs, including healthcare (e.g., patient vitals) and  finance (e.g., credit or transaction data). These datasets reflect practical distribution shifts over time and across sources. We also include benchmark datasets commonly used in prior drift detection work to enable fair comparison and assess generalizability.
+    
+    \item \textbf{Parties:} We simulate \( k \) parties each holding a private dataset if available, or split by some locality feature.
+    
+    \item \textbf{Detection Approaches:}
+    \begin{enumerate}
+        \item \textbf{Local Drift Detection:} Detect drift based only on comparison to previous local data.
+        \item \textbf{Global-Context Detection:} Use secure aggregation to compute global mean and variance, and then detect drift relative to global statistics.
+    \end{enumerate}
+\end{itemize}
+
+\subsection{Metrics}
+
+We evaluate performance across the following dimensions:
+
+\begin{itemize}
+    \item \textbf{Drift Detection Accuracy:} Measured using standard classification metrics: Precision, Recall, F1-score (treating drift as a binary detection task).
+    
+    \item \textbf{Sensitivity to Subtle Drift:} Ability to detect small shifts (e.g., \(\delta = 0.2\sigma\)) that may be undetectable locally but visible in a global context.
+    
+    \item \textbf{False Positives:} Frequency of drift alerts when none is present (evaluated on unmodified datasets).
+    
+    \item \textbf{Computational Overhead:} Measured by total number of cryptographic operations and time to convergence of the protocol.
+\end{itemize}
+
+\subsection{Expected Outcomes}
+
+We hypothesize that:
+\begin{itemize}
+    \item Global-context detection will outperform local-only detection in identifying subtle or systemic drifts.
+    
+    \item It will reduce false positives in cases where local change reflects a broader population trend (e.g. seasonal effects).
+    
+    \item The protocol will remain computationally efficient due to the use of lightweight additive secret sharing.
+\end{itemize}
+
+\section{Results}
+\section{Future Work}
+
+
+\bibliographystyle{plain}
+\bibliography{bibliography}
+
+\end{document}
+
