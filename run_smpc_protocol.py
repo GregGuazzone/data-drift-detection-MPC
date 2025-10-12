@@ -23,6 +23,8 @@ class SMPCOrchestrator:
         self.use_legacy = use_legacy
         self.processes: Dict[str, subprocess.Popen] = {}
         self.log_files = {}
+        self.computation_start_time = None
+        self.computation_end_time = None
         
         # Choose party configuration
         if use_legacy:
@@ -91,6 +93,10 @@ class SMPCOrchestrator:
                 time.sleep(3)
         
         print(f"\nAll {num_parties} parties started")
+        
+        # Mark computation start time (after all parties are started)
+        self.computation_start_time = time.time()
+        print(f"Starting computation timer...")
     
     def _start_party(self, party_name: str):
         """Start a single party's process"""
@@ -132,6 +138,7 @@ class SMPCOrchestrator:
             # Check for completion marker in data root directory
             completion_marker = Path(self.data_root_dir) / "protocol_complete.marker"
             if completion_marker.exists():
+                self.computation_end_time = time.time()
                 print(f"\nProtocol completed successfully!")
                 return
             
@@ -145,6 +152,7 @@ class SMPCOrchestrator:
             if len(dead_parties) == len(self.processes):
                 time.sleep(2)  # Brief wait to ensure marker is written
                 if completion_marker.exists():
+                    self.computation_end_time = time.time()
                     print(f"\nAll parties completed - Protocol successful!")
                     return
                 else:
@@ -156,6 +164,7 @@ class SMPCOrchestrator:
                     print(f"\nMost parties completed ({len(dead_parties)}/{len(self.processes)}), checking for completion...")
                     time.sleep(5)  # Give a bit more time for completion marker
                     if completion_marker.exists():
+                        self.computation_end_time = time.time()
                         print(f"\nProtocol completed successfully!")
                         return
                 
@@ -173,6 +182,13 @@ class SMPCOrchestrator:
     
     def _show_results(self):
         """Display protocol results if available"""
+        # Display computation time if available
+        if self.computation_start_time and self.computation_end_time:
+            computation_time = self.computation_end_time - self.computation_start_time
+            print(f"\n{'='*50}")
+            print(f"Computation Time: {computation_time:.2f}s ({computation_time/60:.2f}m)")
+            print(f"{'='*50}")
+        
         # Look for results file in data root directory with new naming convention
         data_root_path = Path(self.data_root_dir)
         
@@ -238,9 +254,6 @@ Examples:
   
   # Use specific data root directory
   python run_smpc_protocol.py --data-root /path/to/parties
-  
-  # Use legacy country configuration
-  python run_smpc_protocol.py --legacy
         """
     )
     

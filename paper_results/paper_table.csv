@@ -1,0 +1,4 @@
+Drift Type,Local F1,Global F1,Improvement (%)
+No Drift,0.0,0.0,0.0
+Sudden Mean Shift,0.139,0.333,140.1
+Variance Explosion,0.182,0.248,36.7

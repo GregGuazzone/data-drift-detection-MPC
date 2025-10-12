@@ -1,0 +1,36 @@
+{
+  "overall": {
+    "local_mean_f1": 0.5022380952380953,
+    "global_mean_f1": 0.6850093373327079,
+    "f1_improvement": 0.1827712420946126,
+    "f1_improvement_pct": 36.39135378768242,
+    "local_std_f1": 0.24614404093718964,
+    "global_std_f1": 0.30906790774247306
+  },
+  "statistical_tests": {
+    "t_statistic": 1.5214937544655474,
+    "t_pvalue": 0.2675421630605519,
+    "significant": false
+  },
+  "effect_size": 0.6541957122022913,
+  "by_scenario": {
+    "low_sensitivity": {
+      "local_f1": 0.8388571428571429,
+      "global_f1": 0.9774730656219393,
+      "improvement": 0.1386159227647964,
+      "improvement_pct": 16.524377713787036
+    },
+    "medium_sensitivity": {
+      "local_f1": 0.4107142857142857,
+      "global_f1": 0.8200836820083682,
+      "improvement": 0.40936939629408253,
+      "improvement_pct": 99.67254866290706
+    },
+    "high_sensitivity": {
+      "local_f1": 0.2571428571428571,
+      "global_f1": 0.2574712643678161,
+      "improvement": 0.0003284072249589709,
+      "improvement_pct": 0.1277139208173776
+    }
+  }
+}
